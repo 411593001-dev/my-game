@@ -166,10 +166,9 @@ const buildings = [
     desc: '和平校區探索旅程的起點。校園入口是認識校園環境與動線的第一站。'
   },
   {
-    name: '圖書館',
-    x: -27, z: -22, w: 19, d: 14, h: 12,
-    color: '#c9d0d1',
-    desc: '圖書館提供閱讀、自習與資料查找空間，是校園學習的重要場所。'
+   buildings.forEach(b => {
+  makeBuilding(b);
+});
   },
   {
     name: '行政大樓',
@@ -307,7 +306,8 @@ player.position.set(0, 0, 42);
 // 遊戲狀態
 let completed = [];
 let nearBuilding = null;
-let heading = 0;
+let cameraPitch = 0.66;
+let lastY = 0;
 let keys = {};
 let dragging = false;
 let lastX = 0;
@@ -428,23 +428,108 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => {
   keys[e.key.toLowerCase()] = false;
 });
-
-// 滑鼠控制攝影機
+ // 滑鼠控制攝影機：左右旋轉、上下抬頭低頭
 canvas.addEventListener('pointerdown', e => {
   dragging = true;
   lastX = e.clientX;
+  lastY = e.clientY;
   canvas.setPointerCapture(e.pointerId);
 });
 
 canvas.addEventListener('pointermove', e => {
-  if (dragging) {
-    heading -= (e.clientX - lastX) * 0.006;
-    lastX = e.clientX;
-  }
+  if (!dragging) return;
+
+  const deltaX = e.clientX - lastX;
+  const deltaY = e.clientY - lastY;
+
+  heading -= deltaX * 0.006;
+  cameraPitch -= deltaY * 0.006;
+
+  cameraPitch = THREE.MathUtils.clamp(
+    cameraPitch,
+    -0.35,
+    1.15
+  );
+
+  lastX = e.clientX;
+  lastY = e.clientY;
 });
 
-canvas.addEventListener('pointerup', () => dragging = false);
-canvas.addEventListener('pointercancel', () => dragging = false);
+canvas.addEventListener('pointerup', () => {
+  dragging = false;
+});
+
+canvas.addEventListener('pointercancel', () => {
+  dragging = false;
+});
+// 滑鼠控制攝影機：左右旋轉、上下抬頭低頭
+canvas.addEventListener('pointerdown', e => {
+  dragging = true;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+
+  const deltaX = e.clientX - lastX;
+  const deltaY = e.clientY - lastY;
+
+  heading -= deltaX * 0.006;
+  cameraPitch -= deltaY * 0.006;
+
+  cameraPitch = THREE.MathUtils.clamp(
+    cameraPitch,
+    -0.35,
+    1.15
+  );
+
+  lastX = e.clientX;
+  lastY = e.clientY;
+});
+
+canvas.addEventListener('pointerup', () => {
+  dragging = false;
+});
+
+canvas.addEventListener('pointercancel', () => {
+  dragging = false;
+});
+// 滑鼠控制攝影機：左右旋轉、上下抬頭低頭
+canvas.addEventListener('pointerdown', e => {
+  dragging = true;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+
+  const deltaX = e.clientX - lastX;
+  const deltaY = e.clientY - lastY;
+
+  heading -= deltaX * 0.006;
+  cameraPitch -= deltaY * 0.006;
+
+  cameraPitch = THREE.MathUtils.clamp(
+    cameraPitch,
+    -0.35,
+    1.15
+  );
+
+  lastX = e.clientX;
+  lastY = e.clientY;
+});
+
+canvas.addEventListener('pointerup', () => {
+  dragging = false;
+});
+
+canvas.addEventListener('pointercancel', () => {
+  dragging = false;
+});
 
 // 畫面大小
 function resize() {
@@ -489,14 +574,20 @@ function animate() {
     player.position.z
   );
 
-  const back = new THREE.Vector3(
-    -Math.sin(heading) * 9,
-    5.5,
-    -Math.cos(heading) * 9
-  );
+const distance = 9;
 
-  camera.position.lerp(target.clone().add(back), 0.12);
-  camera.lookAt(target);
+const horizontal = distance * Math.cos(cameraPitch);
+const vertical = distance * Math.sin(cameraPitch);
+
+const back = new THREE.Vector3(
+  -Math.sin(heading) * horizontal,
+  vertical,
+  -Math.cos(heading) * horizontal
+);
+
+camera.position.lerp(target.clone().add(back), 0.12);
+
+camera.lookAt(target);
 
   renderer.render(scene, camera);
 }
