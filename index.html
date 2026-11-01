@@ -1,0 +1,503 @@
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>高師大和平校區 3D 探索</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#e8eee9;color:#183126;font-family:Arial,"Microsoft JhengHei",sans-serif}
+header{padding:16px 20px;background:#173f2d;color:white}
+header h1{margin:0;font-size:clamp(20px,4vw,30px)}
+header p{margin:6px 0 0;color:#dce9df}
+main{max-width:1200px;margin:auto;padding:14px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px}
+.game{background:#fff;padding:10px;border-radius:14px;box-shadow:0 4px 16px #0001;min-width:0}
+#scene{width:100%;height:min(68vh,650px);min-height:390px;display:block;border-radius:10px;background:#b9d4e3}
+.hud{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:0 0 10px;font-size:14px}
+button{border:0;border-radius:8px;padding:10px 14px;background:#24583d;color:white;font-weight:700;cursor:pointer}
+button:hover{background:#34734f}
+.side{display:grid;gap:12px;align-content:start}
+.panel{background:white;padding:16px;border-radius:12px;box-shadow:0 3px 12px #0000000d}
+.panel h2{margin:0 0 10px;font-size:19px}
+#tasks{padding-left:22px;margin:0}
+#tasks li{margin:9px 0}
+.completed{color:#23784a;text-decoration:line-through}
+#placeInfo{line-height:1.6}
+#message{background:#edf5ef;border-radius:8px;padding:10px;line-height:1.5}
+.controls{display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.hint{font-size:13px;color:#52675a;line-height:1.6}
+@media(max-width:850px){
+.layout{grid-template-columns:1fr}
+.side{grid-template-columns:1fr 1fr}
+#scene{height:55vh;min-height:350px}
+}
+@media(max-width:550px){
+.side{grid-template-columns:1fr}
+main{padding:8px}
+.game{padding:7px}
+}
+</style>
+</head>
+<body>
+<header>
+<h1>高師大和平校區 3D 探索</h1>
+<p>NKNU Heping Campus Adventure · Three.js 第三人稱校園探索</p>
+</header>
+
+<main>
+<div class="layout">
+<section class="game">
+<div class="hud">
+<span>WASD / 方向鍵移動 · 滑鼠拖曳轉視角</span>
+<strong id="progress">探索進度：0 / 5</strong>
+</div>
+
+<canvas id="scene"></canvas>
+
+<div class="controls">
+<button onclick="moveBy(0,1)">▲ 前進</button>
+<button onclick="moveBy(-1,0)">◀ 左移</button>
+<button onclick="moveBy(0,-1)">▼ 後退</button>
+<button onclick="moveBy(1,0)">右移 ▶</button>
+<button onclick="interact()">E 互動</button>
+<button onclick="resetGame()">重新開始</button>
+</div>
+
+<p class="hint">
+WASD 或方向鍵移動；按住滑鼠左鍵拖曳旋轉鏡頭；靠近建築按 E。手機可使用方向按鈕。
+</p>
+</section>
+
+<aside class="side">
+<section class="panel">
+<h2>探索任務</h2>
+<ol id="tasks"></ol>
+</section>
+
+<section class="panel">
+<h2 id="placeTitle">校園入口</h2>
+<p id="placeInfo">歡迎來到高師大和平校區！探索校園中的五個地點。</p>
+<p id="message">尋找附近建築，靠近後按 E 互動。</p>
+</section>
+</aside>
+</div>
+
+<p class="hint">
+這是遊戲化示意場景；建築位置與外觀為概念模型，並非官方測量或實景建模。
+</p>
+</main>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+const canvas = document.querySelector('#scene');
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true
+});
+
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0xb8d2e1);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xb8d2e1);
+scene.fog = new THREE.Fog(0xb8d2e1, 70, 180);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 300);
+
+scene.add(new THREE.HemisphereLight(0xe8f5ff, 0x64704b, 2));
+
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+sun.position.set(-35, 55, 25);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -65;
+sun.shadow.camera.right = 65;
+sun.shadow.camera.top = 65;
+sun.shadow.camera.bottom = -65;
+scene.add(sun);
+
+const mat = (c, r = 0.85) =>
+  new THREE.MeshStandardMaterial({
+    color: c,
+    roughness: r
+  });
+
+function box(parent, x, y, z, w, h, d, m, shadow = true) {
+  const o = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    m
+  );
+
+  o.position.set(x, y + h / 2, z);
+  o.castShadow = shadow;
+  o.receiveShadow = true;
+  parent.add(o);
+  return o;
+}
+
+// 地面
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(150, 150),
+  mat('#78986a')
+);
+
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.05;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// 校園道路
+box(scene, 0, 0.01, 0, 13, 0.05, 130, mat('#c4c5bb'), false);
+box(scene, 0, 0.02, 0, 130, 0.05, 12, mat('#c4c5bb'), false);
+box(scene, -24, 0.02, -22, 7, 0.05, 55, mat('#c4c5bb'), false);
+box(scene, 25, 0.02, 22, 7, 0.05, 55, mat('#c4c5bb'), false);
+
+// 校園建築
+const buildings = [
+  {
+    name: '校園入口',
+    x: 0, z: 48, w: 18, d: 7, h: 5,
+    color: '#d7c6a5',
+    desc: '和平校區探索旅程的起點。校園入口是認識校園環境與動線的第一站。'
+  },
+  {
+    name: '圖書館',
+    x: -27, z: -22, w: 19, d: 14, h: 12,
+    color: '#c9d0d1',
+    desc: '圖書館提供閱讀、自習與資料查找空間，是校園學習的重要場所。'
+  },
+  {
+    name: '行政大樓',
+    x: 27, z: -22, w: 19, d: 14, h: 15,
+    color: '#d9c4ad',
+    desc: '行政大樓是校務行政與相關服務的重要場所。'
+  },
+  {
+    name: '藝術大樓',
+    x: -27, z: 25, w: 19, d: 13, h: 10,
+    color: '#c9b9c9',
+    desc: '藝術大樓與藝術創作、教學及相關活動有關。'
+  },
+  {
+    name: '活動中心',
+    x: 27, z: 25, w: 19, d: 13, h: 11,
+    color: '#c0cdb8',
+    desc: '活動中心是校園活動與學生交流的空間。'
+  }
+];
+
+function makeBuilding(b) {
+  const g = new THREE.Group();
+  scene.add(g);
+  g.position.set(b.x, 0, b.z);
+
+  box(g, 0, 0, 0, b.w, b.h, b.d, mat(b.color));
+  box(g, 0, b.h, 0, b.w + 0.7, 0.55, b.d + 0.7, mat('#777c78'));
+
+  const front = b.d / 2 + 0.03;
+  const floors = Math.max(2, Math.floor(b.h / 3));
+  const cols = Math.max(3, Math.floor(b.w / 3.2));
+
+  for (let f = 0; f < floors; f++) {
+    let yy = 1.2 + f * (b.h - 2) / floors;
+
+    for (let c = 0; c < cols; c++) {
+      let xx = -b.w / 2 + 1.5 + c * (b.w - 3) / (cols - 1);
+
+      box(g, xx, yy, front, 0.95, 1.25, 0.12, mat('#567d91', 0.3), false);
+    }
+  }
+
+  box(g, 0, 0, front + 0.08, 2.1, 2.7, 0.25, mat('#3d5147'), false);
+  box(g, 0, 2.65, front + 0.13, 2.7, 0.25, 0.3, mat('#eee7d8'), false);
+
+  for (let xx of [-b.w / 2 + 0.35, b.w / 2 - 0.35]) {
+    box(g, xx, 0, b.d / 2 + 0.16, 0.35, b.h, 0.28, mat('#eee7d8'), false);
+  }
+}
+
+buildings.forEach(makeBuilding);
+
+// 樹木
+const trunk = mat('#6b4d35');
+const leaves = [
+  mat('#47734c'),
+  mat('#58875a'),
+  mat('#6b965e')
+];
+
+function tree(x, z, s = 1) {
+  box(scene, x, 0, z, 0.45, 2.4 * s, 0.45, trunk);
+
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(1.7 * s - i * 0.18, 12, 10),
+      leaves[i]
+    );
+
+    m.position.set(x + (i - 1) * 0.35, 2.5 * s + i * 0.65, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+}
+
+for (let i = 0; i < 42; i++) {
+  const x = ((i * 17) % 110) - 55;
+  const z = ((i * 29) % 110) - 55;
+
+  if (
+    Math.abs(x) < 10 ||
+    Math.abs(z) < 8 ||
+    buildings.some(b =>
+      Math.abs(x - b.x) < b.w / 2 + 4 &&
+      Math.abs(z - b.z) < b.d / 2 + 4
+    )
+  ) continue;
+
+  tree(x, z, 0.7 + (i % 4) * 0.12);
+}
+
+// 長椅
+for (let z = -45; z < 48; z += 18) {
+  box(scene, -7, 0, z, 2.5, 0.45, 0.7, mat('#76583e'));
+  box(scene, -8.1, 0, z, 0.25, 0.9, 0.25, mat('#4d4f4a'));
+  box(scene, -5.9, 0, z, 0.25, 0.9, 0.25, mat('#4d4f4a'));
+}
+
+// 玩家角色
+const player = new THREE.Group();
+scene.add(player);
+
+const skin = mat('#d7ad83');
+const shirt = mat('#315b91');
+const pants = mat('#273646');
+const shoe = mat('#202326');
+
+box(player, 0, 1.62, 0, 0.85, 1.15, 0.48, shirt);
+
+const head = new THREE.Mesh(
+  new THREE.SphereGeometry(0.34, 20, 16),
+  skin
+);
+
+head.position.y = 2.45;
+head.castShadow = true;
+player.add(head);
+
+box(player, -0.22, 0.15, 0, 0.28, 0.85, 0.34, pants);
+box(player, 0.22, 0.15, 0, 0.28, 0.85, 0.34, pants);
+box(player, -0.22, -0.05, 0.08, 0.32, 0.18, 0.48, shoe);
+box(player, 0.22, -0.05, 0.08, 0.32, 0.18, 0.48, shoe);
+box(player, -0.58, 1.2, 0, 0.25, 0.85, 0.28, shirt);
+box(player, 0.58, 1.2, 0, 0.25, 0.85, 0.28, shirt);
+
+player.position.set(0, 0, 42);
+
+// 遊戲狀態
+let completed = [];
+let nearBuilding = null;
+let heading = 0;
+let keys = {};
+let dragging = false;
+let lastX = 0;
+
+const placeTitle = document.querySelector('#placeTitle');
+const placeInfo = document.querySelector('#placeInfo');
+const message = document.querySelector('#message');
+const tasks = document.querySelector('#tasks');
+const progress = document.querySelector('#progress');
+
+// 計算與建築物的距離
+function distB(b) {
+  return Math.hypot(
+    Math.max(Math.abs(player.position.x - b.x) - b.w / 2, 0),
+    Math.max(Math.abs(player.position.z - b.z) - b.d / 2, 0)
+  );
+}
+
+// 偵測附近建築
+function checkNearby() {
+  nearBuilding = buildings
+    .map(b => ({ b, d: distB(b) }))
+    .filter(o => o.d < 7)
+    .sort((a, b) => a.d - b.d)[0]?.b || null;
+
+  if (nearBuilding) {
+    placeTitle.textContent = nearBuilding.name;
+    placeInfo.textContent = nearBuilding.desc;
+    message.textContent = '附近：' + nearBuilding.name + ' · 按 E 互動探索';
+  } else {
+    message.textContent = '移動角色，尋找校園建築。';
+  }
+}
+
+// 更新任務清單
+function renderTasks() {
+  tasks.innerHTML = '';
+
+  buildings.forEach(b => {
+    const li = document.createElement('li');
+    li.textContent = '探索：' + b.name;
+
+    if (completed.includes(b.name)) {
+      li.className = 'completed';
+    }
+
+    tasks.appendChild(li);
+  });
+
+  progress.textContent = `探索進度：${completed.length} / ${buildings.length}`;
+}
+
+// 互動
+function interact() {
+  if (!nearBuilding) {
+    message.textContent = '請先靠近一個建築（約 7 公尺內）。';
+    return;
+  }
+
+  if (!completed.includes(nearBuilding.name)) {
+    completed.push(nearBuilding.name);
+    renderTasks();
+  }
+
+  placeTitle.textContent = nearBuilding.name;
+  placeInfo.textContent = nearBuilding.desc;
+  message.textContent = '探索完成！你已經找到 ' + nearBuilding.name + '。';
+}
+
+// 重新開始
+function resetGame() {
+  completed = [];
+  player.position.set(0, 0, 42);
+  heading = 0;
+  renderTasks();
+  checkNearby();
+}
+
+// 移動角色
+function moveBy(dx, dz) {
+  const speed = 1.8;
+
+  const forward = new THREE.Vector3(
+    Math.sin(heading), 0, Math.cos(heading)
+  );
+
+  const right = new THREE.Vector3(
+    Math.cos(heading), 0, -Math.sin(heading)
+  );
+
+  player.position.addScaledVector(forward, dz * speed);
+  player.position.addScaledVector(right, dx * speed);
+
+  player.position.x = THREE.MathUtils.clamp(player.position.x, -62, 62);
+  player.position.z = THREE.MathUtils.clamp(player.position.z, -62, 62);
+
+  checkNearby();
+}
+
+// 讓按鈕可以呼叫
+window.moveBy = moveBy;
+window.interact = interact;
+window.resetGame = resetGame;
+
+// 鍵盤控制
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+
+  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) {
+    e.preventDefault();
+  }
+
+  keys[k] = true;
+
+  if (k === 'e') interact();
+});
+
+document.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+// 滑鼠控制攝影機
+canvas.addEventListener('pointerdown', e => {
+  dragging = true;
+  lastX = e.clientX;
+  canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (dragging) {
+    heading -= (e.clientX - lastX) * 0.006;
+    lastX = e.clientX;
+  }
+});
+
+canvas.addEventListener('pointerup', () => dragging = false);
+canvas.addEventListener('pointercancel', () => dragging = false);
+
+// 畫面大小
+function resize() {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+window.addEventListener('resize', resize);
+resize();
+
+renderTasks();
+checkNearby();
+
+const clock = new THREE.Clock();
+
+// 遊戲主迴圈
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  let dx = 0;
+  let dz = 0;
+
+  if (keys.w || keys.arrowup) dz = 1;
+  if (keys.s || keys.arrowdown) dz = -1;
+  if (keys.a || keys.arrowleft) dx = -1;
+  if (keys.d || keys.arrowright) dx = 1;
+
+  if (dx || dz) {
+    const len = Math.hypot(dx, dz);
+    moveBy(dx / len * dt * 35, dz / len * dt * 35);
+  }
+
+  const target = new THREE.Vector3(
+    player.position.x,
+    1.5,
+    player.position.z
+  );
+
+  const back = new THREE.Vector3(
+    -Math.sin(heading) * 9,
+    5.5,
+    -Math.cos(heading) * 9
+  );
+
+  camera.position.lerp(target.clone().add(back), 0.12);
+  camera.lookAt(target);
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
