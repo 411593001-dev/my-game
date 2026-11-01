@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -222,8 +221,13 @@ function makeBuilding(b) {
   }
 }
 
-buildings.forEach(makeBuilding);
-
+buildings.forEach(b => {
+  if (b.name === '圖書館') {
+    makeDetailedLibrary(b);
+  } else {
+    makeBuilding(b);
+  }
+});
 // 樹木
 const trunk = mat('#6b4d35');
 const leaves = [
